@@ -7,6 +7,7 @@ import (
 	"image/draw"
 	_ "image/png"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"strings"
@@ -53,6 +54,7 @@ func Setup() *glfw.Window {
 
 	version := gl.GoStr(gl.GetString(gl.VERSION))
 	fmt.Println("OpenGL version", version)
+	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 	return window
 }
@@ -69,9 +71,20 @@ func Render(window *glfw.Window) {
     projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
-    camera := mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
-    cameraUniform := gl.GetUniformLocation(program, gl.Str("camera\x00"))
-    gl.UniformMatrix4fv(cameraUniform, 1, false, &camera[0])
+    camera := NewCamera(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 1, 0}, -90, 0)
+	cameraMatrix := camera.GetViewMatrix()
+	cameraUniform := gl.GetUniformLocation(program, gl.Str("camera\x00"))
+	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
+
+	var lastX, lastY float64 = windowWidth / 2, windowHeight / 2
+	window.SetCursorPosCallback(func(w *glfw.Window, xpos, ypos float64) {
+		xOffset := float32(xpos - lastX)
+		yOffset := float32(lastY - ypos) // Reversed since y-coordinates range from bottom to top
+		lastX = xpos
+		lastY = ypos
+
+		camera.ProcessMouseMovement(xOffset, yOffset, true)
+	})
 
     textureUniform := gl.GetUniformLocation(program, gl.Str("tex\x00"))
     gl.Uniform1i(textureUniform, 0)
@@ -90,7 +103,28 @@ func Render(window *glfw.Window) {
     gl.Enable(gl.DEPTH_TEST)
     gl.DepthFunc(gl.LESS)
     gl.ClearColor(1.0, 1.0, 1.0, 1.0)
+
+	// Main loop
+	var lastFrame float64 = 0.0   // Time of the last frame
+	var deltaTime float32 = 0.0   // Time difference between the current and the last frame
     for !window.ShouldClose() {
+
+		currentFrame := glfw.GetTime()
+		deltaTime = float32(currentFrame - lastFrame)
+		lastFrame = currentFrame
+
+		if window.GetKey(glfw.KeyW) == glfw.Press {
+			camera.ProcessKeyboard("FORWARD", deltaTime)
+		}
+		if window.GetKey(glfw.KeyS) == glfw.Press {
+			camera.ProcessKeyboard("BACKWARD", deltaTime)
+		}
+		if window.GetKey(glfw.KeyA) == glfw.Press {
+			camera.ProcessKeyboard("LEFT", deltaTime)
+		}
+		if window.GetKey(glfw.KeyD) == glfw.Press {
+			camera.ProcessKeyboard("RIGHT", deltaTime)
+		}
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
         // Render block
@@ -98,6 +132,10 @@ func Render(window *glfw.Window) {
 
         // Set the block's model matrix
         gl.UniformMatrix4fv(modelUniform, 1, false, &block.model[0])
+
+		cameraMatrix = camera.GetViewMatrix()
+    	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
+
 
         gl.BindVertexArray(block.vao)
         gl.ActiveTexture(gl.TEXTURE0)
@@ -356,4 +394,69 @@ func NewBlock(pos mgl32.Vec3, texturePath string) (*Block, error) {
 	block.vao = vao
 
 	return block, nil
+}
+
+type Camera struct {
+    Position mgl32.Vec3
+    Front    mgl32.Vec3
+    Up       mgl32.Vec3
+    Right    mgl32.Vec3
+    WorldUp  mgl32.Vec3
+    Yaw      float32
+    Pitch    float32
+}
+
+func NewCamera(position, up mgl32.Vec3, yaw, pitch float32) *Camera {
+    camera := &Camera{Position: position, WorldUp: up, Yaw: yaw, Pitch: pitch}
+    camera.updateCameraVectors()
+    return camera
+}
+
+func (c *Camera) GetViewMatrix() mgl32.Mat4 {
+    return mgl32.LookAtV(c.Position, c.Position.Add(c.Front), c.Up)
+}
+
+func (c *Camera) ProcessKeyboard(direction string, deltaTime float32) {
+    velocity := 2.5 * deltaTime
+    if direction == "FORWARD" {
+        c.Position = c.Position.Add(c.Front.Mul(velocity))
+    }
+    if direction == "BACKWARD" {
+        c.Position = c.Position.Sub(c.Front.Mul(velocity))
+    }
+    if direction == "LEFT" {
+        c.Position = c.Position.Sub(c.Right.Mul(velocity))
+    }
+    if direction == "RIGHT" {
+        c.Position = c.Position.Add(c.Right.Mul(velocity))
+    }
+}
+
+func (c *Camera) ProcessMouseMovement(xoffset, yoffset float32, constrainPitch bool) {
+    xoffset *= 0.1
+    yoffset *= 0.1
+
+    c.Yaw += xoffset
+    c.Pitch += yoffset
+
+    if constrainPitch {
+        if c.Pitch > 89.0 {
+            c.Pitch = 89.0
+        }
+        if c.Pitch < -89.0 {
+            c.Pitch = -89.0
+        }
+    }
+    c.updateCameraVectors()
+}
+
+func (c *Camera) updateCameraVectors() {
+    front := mgl32.Vec3{
+        float32(math.Cos(float64(mgl32.DegToRad(c.Yaw))) * math.Cos(float64(mgl32.DegToRad(c.Pitch)))),
+        float32(math.Sin(float64(mgl32.DegToRad(c.Pitch)))),
+        float32(math.Sin(float64(mgl32.DegToRad(c.Yaw))) * math.Cos(float64(mgl32.DegToRad(c.Pitch)))),
+    }
+    c.Front = front.Normalize()
+    c.Right = c.Front.Cross(c.WorldUp).Normalize()
+    c.Up = c.Right.Cross(c.Front).Normalize()
 }
