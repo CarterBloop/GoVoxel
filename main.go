@@ -2,19 +2,19 @@ package main
 
 import (
 	"fmt"
-	"go/build"
-	"image"
-	"image/draw"
 	_ "image/png"
 	"log"
-	"math"
-	"os"
 	"runtime"
 	"strings"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
+
+	"GoVoxel/block"
+	"GoVoxel/camera"
+	"GoVoxel/chunk"
+	"GoVoxel/shaders"
 )
 
 const windowWidth = 800
@@ -41,7 +41,7 @@ func Setup() *glfw.Window {
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 
-	window, err := glfw.CreateWindow(windowWidth, windowHeight, "Cube", nil, nil)
+	window, err := glfw.CreateWindow(windowWidth, windowHeight, "GoVoxel", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -60,18 +60,18 @@ func Setup() *glfw.Window {
 }
 
 func Render(window *glfw.Window) {
-    program, err := newProgram(vertexShader, fragmentShader)
+    program, err := newProgram(shaders.VertexShader, shaders.FragmentShader)
     if err != nil {
         panic(err)
     }
 
     gl.UseProgram(program)
 
-    projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 10.0)
+    projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 1000.0)
     projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
-    camera := NewCamera(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 1, 0}, -90, 0)
+    camera := camera.NewCamera(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 1, 0}, -90, 0)
 	cameraMatrix := camera.GetViewMatrix()
 	cameraUniform := gl.GetUniformLocation(program, gl.Str("camera\x00"))
 	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
@@ -94,7 +94,11 @@ func Render(window *glfw.Window) {
     gl.BindFragDataLocation(program, 0, gl.Str("outputColor\x00"))
 
     // Create a new block
-    block, err := NewBlock(mgl32.Vec3{0, 0, 0}, "square.png")
+    block, err := block.NewBlock(mgl32.Vec3{0, 0, 0}, "block.png")
+
+	// Create a new chunk
+	newChunk := chunk.NewChunk()
+	
     if err != nil {
         log.Fatalln(err)
     }
@@ -109,6 +113,7 @@ func Render(window *glfw.Window) {
 	var deltaTime float32 = 0.0   // Time difference between the current and the last frame
     for !window.ShouldClose() {
 
+		// User Input
 		currentFrame := glfw.GetTime()
 		deltaTime = float32(currentFrame - lastFrame)
 		lastFrame = currentFrame
@@ -125,21 +130,22 @@ func Render(window *glfw.Window) {
 		if window.GetKey(glfw.KeyD) == glfw.Press {
 			camera.ProcessKeyboard("RIGHT", deltaTime)
 		}
+
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-        // Render block
+        // Render chunk
+		chunk.RenderChunk(newChunk, modelUniform)
+
         gl.UseProgram(program)
-
         // Set the block's model matrix
-        gl.UniformMatrix4fv(modelUniform, 1, false, &block.model[0])
-
+        gl.UniformMatrix4fv(modelUniform, 1, false, &block.Model[0])
 		cameraMatrix = camera.GetViewMatrix()
     	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
 
 
-        gl.BindVertexArray(block.vao)
+        gl.BindVertexArray(block.Vao)
         gl.ActiveTexture(gl.TEXTURE0)
-        gl.BindTexture(gl.TEXTURE_2D, block.texture)
+        gl.BindTexture(gl.TEXTURE_2D, block.Texture)
 
         gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3) // assuming the cubeVertices is setup for 12 triangles (6 faces * 2 triangles per face)
 
@@ -205,258 +211,4 @@ func compileShader(source string, shaderType uint32) (uint32, error) {
 	}
 
 	return shader, nil
-}
-
-func newTexture(file string) (uint32, error) {
-	imgFile, err := os.Open(file)
-	if err != nil {
-		return 0, fmt.Errorf("texture %q not found on disk: %v", file, err)
-	}
-	img, _, err := image.Decode(imgFile)
-	if err != nil {
-		return 0, err
-	}
-
-	rgba := image.NewRGBA(img.Bounds())
-	if rgba.Stride != rgba.Rect.Size().X*4 {
-		return 0, fmt.Errorf("unsupported stride")
-	}
-	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
-
-	var texture uint32
-	gl.GenTextures(1, &texture)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, texture)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexImage2D(
-		gl.TEXTURE_2D,
-		0,
-		gl.RGBA,
-		int32(rgba.Rect.Size().X),
-		int32(rgba.Rect.Size().Y),
-		0,
-		gl.RGBA,
-		gl.UNSIGNED_BYTE,
-		gl.Ptr(rgba.Pix))
-
-	return texture, nil
-}
-
-var vertexShader = `
-#version 330
-
-uniform mat4 projection;
-uniform mat4 camera;
-uniform mat4 model;
-
-in vec3 vert;
-in vec2 vertTexCoord;
-
-out vec2 fragTexCoord;
-
-void main() {
-    fragTexCoord = vertTexCoord;
-    gl_Position = projection * camera * model * vec4(vert, 1);
-}
-` + "\x00"
-
-var fragmentShader = `
-#version 330
-
-uniform sampler2D tex;
-
-in vec2 fragTexCoord;
-
-out vec4 outputColor;
-
-void main() {
-    outputColor = texture(tex, fragTexCoord);
-}
-` + "\x00"
-
-var cubeVertices = []float32{
-	//  X, Y, Z, U, V
-	// Bottom
-	-1.0, -1.0, -1.0, 0.0, 0.0,
-	1.0, -1.0, -1.0, 1.0, 0.0,
-	-1.0, -1.0, 1.0, 0.0, 1.0,
-	1.0, -1.0, -1.0, 1.0, 0.0,
-	1.0, -1.0, 1.0, 1.0, 1.0,
-	-1.0, -1.0, 1.0, 0.0, 1.0,
-
-	// Top
-	-1.0, 1.0, -1.0, 0.0, 0.0,
-	-1.0, 1.0, 1.0, 0.0, 1.0,
-	1.0, 1.0, -1.0, 1.0, 0.0,
-	1.0, 1.0, -1.0, 1.0, 0.0,
-	-1.0, 1.0, 1.0, 0.0, 1.0,
-	1.0, 1.0, 1.0, 1.0, 1.0,
-
-	// Front
-	-1.0, -1.0, 1.0, 1.0, 0.0,
-	1.0, -1.0, 1.0, 0.0, 0.0,
-	-1.0, 1.0, 1.0, 1.0, 1.0,
-	1.0, -1.0, 1.0, 0.0, 0.0,
-	1.0, 1.0, 1.0, 0.0, 1.0,
-	-1.0, 1.0, 1.0, 1.0, 1.0,
-
-	// Back
-	-1.0, -1.0, -1.0, 0.0, 0.0,
-	-1.0, 1.0, -1.0, 0.0, 1.0,
-	1.0, -1.0, -1.0, 1.0, 0.0,
-	1.0, -1.0, -1.0, 1.0, 0.0,
-	-1.0, 1.0, -1.0, 0.0, 1.0,
-	1.0, 1.0, -1.0, 1.0, 1.0,
-
-	// Left
-	-1.0, -1.0, 1.0, 0.0, 1.0,
-	-1.0, 1.0, -1.0, 1.0, 0.0,
-	-1.0, -1.0, -1.0, 0.0, 0.0,
-	-1.0, -1.0, 1.0, 0.0, 1.0,
-	-1.0, 1.0, 1.0, 1.0, 1.0,
-	-1.0, 1.0, -1.0, 1.0, 0.0,
-
-	// Right
-	1.0, -1.0, 1.0, 1.0, 1.0,
-	1.0, -1.0, -1.0, 1.0, 0.0,
-	1.0, 1.0, -1.0, 0.0, 0.0,
-	1.0, -1.0, 1.0, 1.0, 1.0,
-	1.0, 1.0, -1.0, 0.0, 0.0,
-	1.0, 1.0, 1.0, 0.0, 1.0,
-}
-
-// Set the working directory to the root of Go package, so that its assets can be accessed.
-func init() {
-	dir, err := importPathToDir("github.com/go-gl/example/gl41core-cube")
-	if err != nil {
-		log.Fatalln("Unable to find Go package in your GOPATH, it's needed to load assets:", err)
-	}
-	err = os.Chdir(dir)
-	if err != nil {
-		log.Panicln("os.Chdir:", err)
-	}
-}
-
-// importPathToDir resolves the absolute path from importPath.
-// There doesn't need to be a valid Go package inside that import path,
-// but the directory must exist.
-func importPathToDir(importPath string) (string, error) {
-	p, err := build.Import(importPath, "", build.FindOnly)
-	if err != nil {
-		return "", err
-	}
-	return p.Dir, nil
-}
-
-type Block struct {
-	model   mgl32.Mat4
-	texture uint32
-	vao     uint32
-}
-
-func NewBlock(pos mgl32.Vec3, texturePath string) (*Block, error) {
-	block := &Block{}
-	// set the model matrix to move the block to the specified position
-	block.model = mgl32.Translate3D(pos[0], pos[1], pos[2])
-
-	// Load the texture
-	tex, err := newTexture(texturePath)
-	if err != nil {
-		return nil, err
-	}
-	block.texture = tex
-
-	// Define the standard cube vertex data
-	vertices := cubeVertices
-
-	// Create VAO
-	var vao, vbo uint32
-	gl.GenVertexArrays(1, &vao)
-	gl.GenBuffers(1, &vbo)
-
-	gl.BindVertexArray(vao)
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
-
-	// Position attribute
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
-	gl.EnableVertexAttribArray(0)
-	// Texture coordinate attribute
-	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*4, gl.PtrOffset(3*4))
-	gl.EnableVertexAttribArray(1)
-
-	gl.BindVertexArray(0) // Unbind VAO
-
-	block.vao = vao
-
-	return block, nil
-}
-
-type Camera struct {
-    Position mgl32.Vec3
-    Front    mgl32.Vec3
-    Up       mgl32.Vec3
-    Right    mgl32.Vec3
-    WorldUp  mgl32.Vec3
-    Yaw      float32
-    Pitch    float32
-}
-
-func NewCamera(position, up mgl32.Vec3, yaw, pitch float32) *Camera {
-    camera := &Camera{Position: position, WorldUp: up, Yaw: yaw, Pitch: pitch}
-    camera.updateCameraVectors()
-    return camera
-}
-
-func (c *Camera) GetViewMatrix() mgl32.Mat4 {
-    return mgl32.LookAtV(c.Position, c.Position.Add(c.Front), c.Up)
-}
-
-func (c *Camera) ProcessKeyboard(direction string, deltaTime float32) {
-    velocity := 2.5 * deltaTime
-    if direction == "FORWARD" {
-        c.Position = c.Position.Add(c.Front.Mul(velocity))
-    }
-    if direction == "BACKWARD" {
-        c.Position = c.Position.Sub(c.Front.Mul(velocity))
-    }
-    if direction == "LEFT" {
-        c.Position = c.Position.Sub(c.Right.Mul(velocity))
-    }
-    if direction == "RIGHT" {
-        c.Position = c.Position.Add(c.Right.Mul(velocity))
-    }
-}
-
-func (c *Camera) ProcessMouseMovement(xoffset, yoffset float32, constrainPitch bool) {
-    xoffset *= 0.1
-    yoffset *= 0.1
-
-    c.Yaw += xoffset
-    c.Pitch += yoffset
-
-    if constrainPitch {
-        if c.Pitch > 89.0 {
-            c.Pitch = 89.0
-        }
-        if c.Pitch < -89.0 {
-            c.Pitch = -89.0
-        }
-    }
-    c.updateCameraVectors()
-}
-
-func (c *Camera) updateCameraVectors() {
-    front := mgl32.Vec3{
-        float32(math.Cos(float64(mgl32.DegToRad(c.Yaw))) * math.Cos(float64(mgl32.DegToRad(c.Pitch)))),
-        float32(math.Sin(float64(mgl32.DegToRad(c.Pitch)))),
-        float32(math.Sin(float64(mgl32.DegToRad(c.Yaw))) * math.Cos(float64(mgl32.DegToRad(c.Pitch)))),
-    }
-    c.Front = front.Normalize()
-    c.Right = c.Front.Cross(c.WorldUp).Normalize()
-    c.Up = c.Right.Cross(c.Front).Normalize()
 }
