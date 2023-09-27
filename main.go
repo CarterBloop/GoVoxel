@@ -11,7 +11,6 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"GoVoxel/block"
 	"GoVoxel/camera"
 	"GoVoxel/chunk"
 	"GoVoxel/shaders"
@@ -93,9 +92,6 @@ func Render(window *glfw.Window) {
 
     gl.BindFragDataLocation(program, 0, gl.Str("outputColor\x00"))
 
-    // Create a new block
-    block, err := block.NewBlock(mgl32.Vec3{0, 0, 0}, "block.png")
-
 	// Create a new chunk
 	newChunk := chunk.NewChunk()
 	
@@ -137,17 +133,10 @@ func Render(window *glfw.Window) {
 		chunk.RenderChunk(newChunk, modelUniform)
 
         gl.UseProgram(program)
+
         // Set the block's model matrix
-        gl.UniformMatrix4fv(modelUniform, 1, false, &block.Model[0])
 		cameraMatrix = camera.GetViewMatrix()
     	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
-
-
-        gl.BindVertexArray(block.Vao)
-        gl.ActiveTexture(gl.TEXTURE0)
-        gl.BindTexture(gl.TEXTURE_2D, block.Texture)
-
-        gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3) // assuming the cubeVertices is setup for 12 triangles (6 faces * 2 triangles per face)
 
         // Maintenance
         window.SwapBuffers()
@@ -156,12 +145,12 @@ func Render(window *glfw.Window) {
 }
 
 func newProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
-	vertexShader, err := compileShader(vertexShaderSource, gl.VERTEX_SHADER)
+	vertexShader, err := shaders.CompileShader(vertexShaderSource, gl.VERTEX_SHADER)
 	if err != nil {
 		return 0, err
 	}
 
-	fragmentShader, err := compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER)
+	fragmentShader, err := shaders.CompileShader(fragmentShaderSource, gl.FRAGMENT_SHADER)
 	if err != nil {
 		return 0, err
 	}
@@ -188,27 +177,4 @@ func newProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error)
 	gl.DeleteShader(fragmentShader)
 
 	return program, nil
-}
-
-func compileShader(source string, shaderType uint32) (uint32, error) {
-	shader := gl.CreateShader(shaderType)
-
-	csources, free := gl.Strs(source)
-	gl.ShaderSource(shader, 1, csources, nil)
-	free()
-	gl.CompileShader(shader)
-
-	var status int32
-	gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)
-	if status == gl.FALSE {
-		var logLength int32
-		gl.GetShaderiv(shader, gl.INFO_LOG_LENGTH, &logLength)
-
-		log := strings.Repeat("\x00", int(logLength+1))
-		gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))
-
-		return 0, fmt.Errorf("failed to compile %v: %v", source, log)
-	}
-
-	return shader, nil
 }
