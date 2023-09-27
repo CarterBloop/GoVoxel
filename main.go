@@ -12,8 +12,8 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"GoVoxel/camera"
-	"GoVoxel/chunk"
 	"GoVoxel/shaders"
+	"GoVoxel/world"
 )
 
 const windowWidth = 800
@@ -92,8 +92,8 @@ func Render(window *glfw.Window) {
 
     gl.BindFragDataLocation(program, 0, gl.Str("outputColor\x00"))
 
-	// Create a new chunk
-	newChunk, err := chunk.NewChunk()
+	// Create a new world
+	newWorld := world.NewWorld()
 	
     if err != nil {
         log.Fatalln(err)
@@ -103,6 +103,10 @@ func Render(window *glfw.Window) {
     gl.Enable(gl.DEPTH_TEST)
     gl.DepthFunc(gl.LESS)
     gl.ClearColor(1.0, 1.0, 1.0, 1.0)
+
+	gl.Enable(gl.CULL_FACE)
+	gl.CullFace(gl.BACK)
+	gl.FrontFace(gl.CCW) // Assuming your vertices are counter-clockwise
 
 	// Main loop
 	var lastFrame float64 = 0.0   // Time of the last frame
@@ -129,8 +133,8 @@ func Render(window *glfw.Window) {
 
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-        // Render chunk
-		chunk.RenderChunk(newChunk, modelUniform)
+        // Render chunks
+		newWorld.RenderChunks(modelUniform)
 
         gl.UseProgram(program)
 
