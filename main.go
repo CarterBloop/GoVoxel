@@ -70,8 +70,8 @@ func Render(window *glfw.Window) {
     projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
-    camera := camera.NewCamera(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 1, 0}, -90, 0)
-	cameraMatrix := camera.GetViewMatrix()
+    cam := camera.NewCamera(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 1, 0}, -90, 0)
+	cameraMatrix := cam.GetViewMatrix()
 	cameraUniform := gl.GetUniformLocation(program, gl.Str("camera\x00"))
 	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
 
@@ -82,7 +82,7 @@ func Render(window *glfw.Window) {
 		lastX = xpos
 		lastY = ypos
 
-		camera.ProcessMouseMovement(xOffset, yOffset, true)
+		cam.ProcessMouseMovement(xOffset, yOffset, true)
 	})
 
     textureUniform := gl.GetUniformLocation(program, gl.Str("tex\x00"))
@@ -115,16 +115,16 @@ func Render(window *glfw.Window) {
 		lastFrame = currentFrame
 
 		if window.GetKey(glfw.KeyW) == glfw.Press {
-			camera.ProcessKeyboard("FORWARD", deltaTime)
+			cam.ProcessKeyboard(camera.FORWARD, deltaTime)
 		}
 		if window.GetKey(glfw.KeyS) == glfw.Press {
-			camera.ProcessKeyboard("BACKWARD", deltaTime)
+			cam.ProcessKeyboard(camera.BACKWARD, deltaTime)
 		}
 		if window.GetKey(glfw.KeyA) == glfw.Press {
-			camera.ProcessKeyboard("LEFT", deltaTime)
+			cam.ProcessKeyboard(camera.LEFT, deltaTime)
 		}
 		if window.GetKey(glfw.KeyD) == glfw.Press {
-			camera.ProcessKeyboard("RIGHT", deltaTime)
+			cam.ProcessKeyboard(camera.RIGHT, deltaTime)
 		}
 
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -135,7 +135,7 @@ func Render(window *glfw.Window) {
         gl.UseProgram(program)
 
         // Set the block's model matrix
-		cameraMatrix = camera.GetViewMatrix()
+		cameraMatrix = cam.GetViewMatrix()
     	gl.UniformMatrix4fv(cameraUniform, 1, false, &cameraMatrix[0])
 
         // Maintenance
