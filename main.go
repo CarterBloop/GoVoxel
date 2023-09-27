@@ -93,7 +93,7 @@ func Render(window *glfw.Window) {
     gl.BindFragDataLocation(program, 0, gl.Str("outputColor\x00"))
 
 	// Create a new chunk
-	newChunk := chunk.NewChunk()
+	newChunk, err := chunk.NewChunk()
 	
     if err != nil {
         log.Fatalln(err)
